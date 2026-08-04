@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 # not offer lyre to third parties as a hosted or managed service. Full terms in
 # LICENSE.txt (SPDX: Elastic-2.0).
 license = { file = "LICENSE.txt" }
-authors = [{ name = "Joseph R. Quinn", email = "quinn.josephr@gmail.com" }]
+authors = [{ name = "Joseph R. Quinn", email = "423821+quinnjr@users.noreply.github.com" }]
 classifiers = [
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
