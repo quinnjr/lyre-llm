@@ -1,3 +1,4 @@
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 
 from lyre.tracking.hmm import Note
@@ -56,6 +57,8 @@ _LABEL_FAMILY = {
     "other": FAMILY_OTHER,
 }
 
+_LABEL_KEYS_BY_LENGTH = sorted(_LABEL_FAMILY, key=len, reverse=True)
+
 FAMILY_PROGRAMS = {
     FAMILY_GUITAR: 30,
     FAMILY_BASS: 33,
@@ -75,11 +78,11 @@ def program_for(label):
     return FAMILY_PROGRAMS.get(family_of_label(label), 0)
 
 
-def normalize_label(label, index=0):
+def normalize_label(label):
     label = str(label).strip().lower()
     if label in _LABEL_FAMILY:
         return label
-    for word in sorted(_LABEL_FAMILY, key=len, reverse=True):
+    for word in _LABEL_KEYS_BY_LENGTH:
         if word in label:
             return word
     return "other"
@@ -128,16 +131,42 @@ class Instrument:
         }
 
 
+def _overlap_counts(notes, eps=1e-3):
+    """Number of other notes overlapping each note, in O(n log n).
+
+    ``other`` overlaps ``note`` when ``other.end > note.start + eps`` and
+    ``other.start < note.end - eps``. Counting is done with two sorted arrays:
+    (notes starting before the note ends) minus (notes ending before it starts).
+    Degenerate notes shorter than ``2 * eps`` break that subtraction, so they
+    fall back to a direct scan.
+    """
+    starts = sorted(n.start for n in notes)
+    ends = sorted(n.end for n in notes)
+    counts = []
+    for note in notes:
+        hi = note.end - eps
+        lo = note.start + eps
+        if lo < hi:
+            count = bisect_left(starts, hi) - bisect_right(ends, lo)
+            # the note itself is counted among the starts, never among the ends
+            counts.append(count - 1)
+        else:
+            counts.append(
+                sum(
+                    1
+                    for other in notes
+                    if other is not note
+                    and other.end > lo
+                    and other.start < hi
+                )
+            )
+    return counts
+
+
 def split_guitar(instrument):
     rhythm, lead = [], []
-    for note in instrument.notes:
-        overlap = sum(
-            1
-            for other in instrument.notes
-            if other is not note
-            and note.start < other.end - 1e-3
-            and other.start < note.end - 1e-3
-        )
+    overlaps = _overlap_counts(instrument.notes)
+    for note, overlap in zip(instrument.notes, overlaps):
         if overlap >= 2:
             rhythm.append(note)
         else:

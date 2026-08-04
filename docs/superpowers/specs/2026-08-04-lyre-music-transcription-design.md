@@ -60,8 +60,13 @@ track.
   - Bass: bass stem → 4-string EADG tab with position markers.
   - Drums: drum stem pitches mapped via GM kit → kick/snare/hat grid.
   - Rendering: ASCII `.tab`/`.txt`, Guitar Pro `.gp5` (via `PyGuitarPro`),
-    MusicXML (universal interchange, tab staves), PDF (headless, Verovio
-    primary, MuseScore CLI fallback).
+    MusicXML (universal interchange, tab staves), PDF (headless, via the
+    MuseScore CLI).
+    > **Amended 2026-08-04 (audit).** Originally "Verovio primary, MuseScore CLI
+    > fallback". The Verovio Python toolkit renders SVG/MIDI/timemap and has no
+    > PDF writer, so the primary path could never succeed. MuseScore is now the
+    > only PDF renderer; PDF is unavailable when no MuseScore binary is on PATH,
+    > and that is reported rather than swallowed.
 
 ## Training regimen (Stage 2)
 
@@ -77,7 +82,9 @@ track.
   - **MAESTRO** — piano stems (high note-accuracy ground truth).
   - **GuitarSet** — guitar stem with aligned MIDI (guitar-specific data).
   - **Private corpus** — normalized into the same stem-audio + MIDI format.
-- Data mix sampling weights: Slakh 40% / guitar 25% / piano 25% / private 10%.
+- Data mix sampling weights: Slakh 40% / GuitarSet 25% / MAESTRO (piano) 25% /
+  private 10% — the four `data.mix_weights` keys, named for the corpus rather
+  than the instrument so they match the source tag prepare-data stamps.
   Guitar and piano are deliberately oversampled because tabs live or die there;
   bass and drums get their own dedicated share so no instrument is weak.
 
@@ -89,6 +96,10 @@ track.
 - Optimizer AdamW, lr 1e-3, cosine decay, warmup, batch 32–64, mixed precision.
 - Augmentation: pitch shift, time stretch, gain, SpecAugment, and re-mixing of
   stems into new mixes (also provides separator test material).
+  > **Amended 2026-08-04 (audit).** Pitch shift, time stretch, gain and
+  > SpecAugment are implemented behind the `augment:` config block. **Stem
+  > re-mixing is NOT implemented** — it needs cross-track sampling that cannot
+  > live in `Dataset.__getitem__`, and remains an open item.
 - Phase 1: pretrain on all stems. Phase 2: fine-tune on guitar-heavy mix
   (GuitarSet + private guitar).
 - Reproducibility: fixed splits, seeded runs, YAML config per run, metrics +
@@ -130,6 +141,11 @@ optional FastAPI endpoint wrapping the same pipeline.
 - Stem with nothing detected → empty-track warning, still merges.
 - Guitar part unplayable (above fret 24) → octave shift, noted in output.
 - Long files → chunked streaming to bound memory.
+  > **Amended 2026-08-04 (audit).** Separation and transcription are chunked into
+  > `inference.chunk_sec` blocks with `chunk_pad_sec` context, so peak stem memory
+  > is bounded. **The initial decode is still full-file** — `load_audio` reads the
+  > whole waveform into memory, and there is no streaming-decode hook of any kind:
+  > adding one means writing a chunked decoder, not wiring up existing parameters.
 - Stage failures isolated — a failed stage is reported clearly while remaining
   outputs are still produced.
 

@@ -1,4 +1,6 @@
+from lyre.errors import LabelingError
 from lyre.instruments import Instrument, normalize_label, program_for
+from lyre.reporting import warn as _report
 
 _STEM_LABEL = {
     "bass": "bass",
@@ -15,7 +17,18 @@ def _split_guitar(instrument):
 
     rhythm, lead = split_guitar(instrument)
     if not rhythm or not lead:
-        return [instrument]
+        # The split did not apply, but this is still a guitar stem: rebuild it
+        # so it gets the label and program every other stem gets. Returning the
+        # instrument untouched left it named after whatever the caller passed
+        # in, on program 0 (Acoustic Grand Piano).
+        return [
+            Instrument(
+                name="guitar",
+                notes=instrument.notes,
+                program=program_for("guitar"),
+                source=instrument.source,
+            )
+        ]
     out = []
     for notes, name in ((rhythm, "guitar rhythm"), (lead, "guitar lead")):
         out.append(
@@ -51,11 +64,24 @@ def label_rules(instruments):
     return labeled
 
 
-def label_tracks(instruments, llm=None):
+def label_tracks(instruments, llm=None, sink=None, strict=False):
+    """Label tracks with rules, optionally refined by an LLM.
+
+    ``strict`` is set when the user explicitly asked for LLM labeling: they
+    asked precisely because rule-based labels are not good enough, so a runtime
+    LLM failure is raised rather than quietly downgraded. Otherwise the
+    rule-based labels are returned and the failure is reported (never swallowed).
+
+    Only :class:`~lyre.errors.LabelingError` is caught: a bug inside ``rename``
+    must not be disguised as "the LLM was unreachable".
+    """
     rules_out = label_rules(instruments)
     if llm is None:
         return rules_out
     try:
         return llm.rename(rules_out)
-    except Exception:
+    except LabelingError as exc:
+        if strict:
+            raise
+        _report(f"LLM labeling failed ({exc}); using rule-based labels", sink)
         return rules_out

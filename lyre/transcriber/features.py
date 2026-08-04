@@ -1,3 +1,5 @@
+import functools
+
 import torch
 import torchaudio.functional as F
 
@@ -8,6 +10,25 @@ def hop_length(sample_rate, hop_ms=10):
 
 def frame_rate(sample_rate, hop_ms=10):
     return sample_rate / hop_length(sample_rate, hop_ms)
+
+
+@functools.lru_cache(maxsize=32)
+def _hann_window(n_fft, device, dtype):
+    return torch.hann_window(n_fft, device=device, dtype=dtype)
+
+
+@functools.lru_cache(maxsize=32)
+def _mel_fbanks(n_freqs, f_min, f_max, n_mels, sample_rate, device):
+    fbanks = F.melscale_fbanks(
+        n_freqs=n_freqs,
+        f_min=f_min,
+        f_max=f_max,
+        n_mels=n_mels,
+        sample_rate=sample_rate,
+        norm="slaney",
+        mel_scale="htk",
+    )
+    return fbanks.to(device)
 
 
 def compute_features(
@@ -21,7 +42,7 @@ def compute_features(
     eps=1e-5,
 ):
     hop = hop_length(sample_rate, hop_ms)
-    win = torch.hann_window(n_fft, device=waveform.device, dtype=waveform.dtype)
+    win = _hann_window(n_fft, waveform.device, waveform.dtype)
     spec = F.spectrogram(
         waveform.unsqueeze(0),
         pad=0,
@@ -32,15 +53,9 @@ def compute_features(
         power=2.0,
         normalized=False,
     )
-    fbanks = F.melscale_fbanks(
-        n_freqs=n_fft // 2 + 1,
-        f_min=f_min,
-        f_max=f_max,
-        n_mels=n_mels,
-        sample_rate=sample_rate,
-        norm="slaney",
-        mel_scale="htk",
+    fbanks = _mel_fbanks(
+        n_fft // 2 + 1, float(f_min), float(f_max), n_mels, sample_rate, spec.device
     )
-    mel = torch.matmul(spec.squeeze(0).t().float(), fbanks.to(spec.device))
+    mel = torch.matmul(spec.squeeze(0).t().float(), fbanks)
     logmel = torch.log(mel.clamp_min(eps))
     return logmel.contiguous()

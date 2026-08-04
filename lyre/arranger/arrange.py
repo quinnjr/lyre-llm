@@ -1,9 +1,16 @@
+import re
 from dataclasses import dataclass, field
+
+from lyre.errors import LyreError
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 GUITAR_TUNING = [40, 45, 50, 55, 59, 64]
 BASS_TUNING = [28, 33, 38, 43]
+
+GUITAR_MAX_FRET = 24
+BASS_MAX_FRET = 21  # a 4-string bass does not have 24 frets
+DEFAULT_MAX_SPAN = 4  # frets a hand can reach without shifting position
 
 GUITAR_TUNINGS = {
     "standard": GUITAR_TUNING,
@@ -25,21 +32,33 @@ BASS_TUNINGS = {
 }
 
 
+_NATURAL_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+_NOTE_RE = re.compile(r"^([A-Ga-g])([#b]?)(-?\d+)?$")
+
+
 def note_to_midi(name):
-    name = name.strip().replace("b", "#")
-    if name.endswith("#"):
-        name = name + "4"
-    octave = 4
-    if name and name[-1].isdigit():
-        octave = int(name[-1])
-        name = name[:-1]
-    if name not in NOTE_NAMES:
+    """Parse a scientific-pitch note name (``C4``, ``Db3``, ``eb2``) to MIDI."""
+    match = _NOTE_RE.match(str(name).strip())
+    if match is None:
         raise ValueError(f"unknown note name {name!r}")
-    return NOTE_NAMES.index(name) + (octave + 1) * 12
+    letter, accidental, octave = match.groups()
+    pitch_class = _NATURAL_PC[letter.upper()]
+    if accidental == "#":
+        pitch_class += 1
+    elif accidental == "b":
+        pitch_class -= 1
+    octave = 4 if octave is None else int(octave)
+    return pitch_class + (octave + 1) * 12
 
 
 def string_label(pitch):
     return NOTE_NAMES[pitch % 12]
+
+
+def pitch_name(pitch):
+    """Human-readable scientific pitch name, e.g. 36 -> ``C2``."""
+    pitch = int(pitch)
+    return f"{NOTE_NAMES[pitch % 12]}{pitch // 12 - 1}"
 
 
 def resolve_tuning(spec, default, presets=None):
@@ -47,11 +66,23 @@ def resolve_tuning(spec, default, presets=None):
     if spec is None:
         return list(default)
     if isinstance(spec, (list, tuple)):
-        return [int(s) if isinstance(s, int) else note_to_midi(str(s)) for s in spec]
+        # A bad note name in the list is the same class of user error as an
+        # unknown preset below, so it gets the same exception type -- otherwise
+        # `[E2, A2, Q9]` is a traceback while `drop-q` is a clean message.
+        out = []
+        for s in spec:
+            if isinstance(s, int):
+                out.append(int(s))
+                continue
+            try:
+                out.append(note_to_midi(str(s)))
+            except ValueError as exc:
+                raise LyreError(f"unknown tuning {spec!r}: {exc}") from exc
+        return out
     key = str(spec).strip().lower().replace(" ", "-")
     if key in presets:
         return list(presets[key])
-    raise ValueError(f"unknown tuning {spec!r}; use a preset or a list of pitches")
+    raise LyreError(f"unknown tuning {spec!r}; use a preset or a list of pitches")
 
 
 @dataclass
@@ -71,11 +102,19 @@ class TabEvent:
 
 @dataclass
 class TabTrack:
+    """A tab track.
+
+    ``performance_notes`` holds human-readable notes describing every
+    reduction the arranger had to make (octave shifts, dropped voices).
+    Renderers are expected to surface these to the user.
+    """
+
     name: str
     tuning: list
     max_fret: int
     events: list = field(default_factory=list)
     bars: list = field(default_factory=list)
+    performance_notes: list = field(default_factory=list)
 
 
 @dataclass
@@ -109,18 +148,16 @@ def _bar_boundaries(duration, tempo, ts):
     return bars
 
 
-def voice_chord(
-    pitches,
-    tuning,
-    prev_frets=None,
-    max_span=4,
-    max_fret=24,
-):
-    prev_frets = prev_frets or [0] * len(tuning)
-    pitches = sorted(set(pitches), reverse=True)
+def _search_voicing(pitches, tuning, prev_frets, max_span, max_fret):
+    """Best fretting for exactly ``pitches`` (sorted high to low), or None.
+
+    Score is ``(span, melody_penalty, movement)``: fret span dominates, then how
+    far the lead voice sits from the highest string, then voice-leading motion.
+    """
+    top_index = len(tuning) - 1
     best = None
 
-    def rec(i, used, frets, span_lo, span_hi):
+    def rec(i, used, frets, span_lo, span_hi, top_string):
         nonlocal best
         if best is not None and span_hi - span_lo > best[0]:
             return
@@ -130,9 +167,10 @@ def voice_chord(
             movement = sum(
                 abs(f - prev_frets[s]) for s, f in enumerate(frets) if f >= 0
             )
-            score = (span_hi - span_lo, movement)
-            if best is None or score < best[:2]:
-                best = (span_hi - span_lo, movement, frets[:])
+            melody = top_index - top_string if top_string >= 0 else top_index
+            score = (span_hi - span_lo, melody, movement)
+            if best is None or score < best[:3]:
+                best = (span_hi - span_lo, melody, movement, frets[:])
             return
         pitch = pitches[i]
         for s in range(len(tuning)):
@@ -143,19 +181,111 @@ def voice_chord(
                 continue
             used.add(s)
             frets[s] = fret
-            rec(i + 1, used, frets, min(span_lo, fret), max(span_hi, fret))
+            rec(
+                i + 1,
+                used,
+                frets,
+                min(span_lo, fret),
+                max(span_hi, fret),
+                s if i == 0 else top_string,
+            )
             frets[s] = -1
             used.remove(s)
 
-    frets = [-1] * len(tuning)
-    rec(0, set(), frets, 1000, -1)
+    rec(0, set(), [-1] * len(tuning), 1000, -1, -1)
     if best is None:
         return None
-    return best[2]
+    return best[3]
 
 
-def _events_from_notes(notes, tolerance=0.02):
-    notes = sorted(notes, key=lambda n: n.start)
+def _fit_octave(pitch, lo, hi):
+    """Shift ``pitch`` by whole octaves into ``[lo, hi]``.
+
+    Returns ``(pitch, octaves_shifted)`` or ``(None, 0)`` when impossible.
+    """
+    shifted = int(pitch)
+    octaves = 0
+    while shifted < lo:
+        shifted += 12
+        octaves += 1
+    while shifted > hi:
+        shifted -= 12
+        octaves -= 1
+    if shifted < lo or shifted > hi:
+        return None, 0
+    return shifted, octaves
+
+
+def voice_chord(
+    pitches,
+    tuning,
+    prev_frets=None,
+    max_span=DEFAULT_MAX_SPAN,
+    max_fret=GUITAR_MAX_FRET,
+    report=None,
+):
+    """Fret a simultaneity, reducing it until it is playable.
+
+    Pitches outside the instrument range are octave-shifted; if there are still
+    more pitches than strings (or the reach is impossible) the lowest voices are
+    dropped so the lead melody survives. Every such compromise is appended to
+    ``report`` as a human-readable string when a list is supplied.
+    """
+    prev_frets = prev_frets or [0] * len(tuning)
+    wanted = sorted({int(p) for p in pitches}, reverse=True)
+    if not wanted:
+        return None
+
+    lo = min(tuning)
+    hi = max(tuning) + max_fret
+    shifts = {}
+    placed = []
+    n_unfittable = 0
+    for pitch in wanted:
+        fitted, octaves = _fit_octave(pitch, lo, hi)
+        if fitted is None:
+            n_unfittable += 1
+            continue
+        if octaves and fitted not in shifts:
+            shifts[fitted] = "shifted %s %s %d octave%s" % (
+                pitch_name(pitch),
+                "up" if octaves > 0 else "down",
+                abs(octaves),
+                "" if abs(octaves) == 1 else "s",
+            )
+        placed.append(fitted)
+
+    placed = sorted(set(placed), reverse=True)
+    # Count against the folded, de-duplicated set: an octave-doubled voice that
+    # collapses onto an existing pitch is not a musical loss, so reporting it as
+    # a "dropped note" would be a false alarm on every power chord.
+    n_requested = len(placed) + n_unfittable
+    if len(placed) > len(tuning):
+        placed = placed[: len(tuning)]
+
+    frets = None
+    while placed:
+        frets = _search_voicing(placed, tuning, prev_frets, max_span, max_fret)
+        if frets is not None:
+            break
+        placed = placed[:-1]
+    if frets is None:
+        return None
+
+    if report is not None:
+        report.extend(shifts[p] for p in placed if p in shifts)
+        if len(placed) < n_requested:
+            report.append(
+                "dropped %d of %d simultaneous notes"
+                % (n_requested - len(placed), n_requested)
+            )
+    return frets
+
+
+def events_from_notes(notes, tolerance=0.02, sort=True):
+    """Group notes into simultaneities: onsets within ``tolerance`` seconds."""
+    if sort:
+        notes = sorted(notes, key=lambda n: n.start)
     events = []
     for note in notes:
         if events and abs(note.start - events[-1][0]) <= tolerance:
@@ -165,54 +295,107 @@ def _events_from_notes(notes, tolerance=0.02):
     return events
 
 
-def build_guitar_track(notes, tempo, ts=(4, 4), tuning=None, name="Guitar", max_span=4, max_fret=24):
-    tuning = resolve_tuning(tuning, GUITAR_TUNING, GUITAR_TUNINGS)
+def _source_end(group, pitch, b_end):
+    """End time of the source note(s) that produced ``pitch``, clipped to the bar."""
+    ends = [n.end for n in group if n.pitch == pitch]
+    if not ends:
+        ends = [n.end for n in group if (n.pitch - pitch) % 12 == 0]
+    if not ends:
+        return b_end
+    return min(max(ends), b_end)
+
+
+def _build_tab_track(notes, tempo, ts, tuning, name, max_span, max_fret):
     track = TabTrack(name=name, tuning=tuning, max_fret=max_fret)
     if not notes:
         return track
+    notes = sorted(notes, key=lambda n: n.start)
+    n_notes = len(notes)
     duration = max(n.end for n in notes)
     bars = _bar_boundaries(duration, tempo, ts)
     prev_frets = [0] * len(tuning)
-    for b_start, b_end in bars:
-        bar_notes = [n for n in notes if n.end > b_start and n.start < b_end]
-        for start, group in _events_from_notes(bar_notes):
+    index = 0
+    for bar_no, (b_start, b_end) in enumerate(bars, start=1):
+        last_bar = bar_no == len(bars)
+        stop = index
+        while stop < n_notes and (
+            notes[stop].start < b_end or (last_bar and notes[stop].start <= b_end)
+        ):
+            stop += 1
+        bar_notes = notes[index:stop]
+        index = stop
+        for start, group in events_from_notes(bar_notes, sort=False):
             pitches = [n.pitch for n in group]
-            frets = voice_chord(pitches, tuning, prev_frets, max_span, max_fret)
+            report = []
+            frets = voice_chord(
+                pitches, tuning, prev_frets, max_span, max_fret, report=report
+            )
             if frets is None:
+                track.performance_notes.append(
+                    "bar %d: dropped %d unplayable note%s"
+                    % (bar_no, len(pitches), "" if len(pitches) == 1 else "s")
+                )
                 continue
+            for message in report:
+                track.performance_notes.append("bar %d: %s" % (bar_no, message))
             prev_frets = [f if f >= 0 else p for f, p in zip(frets, prev_frets)]
             event = TabEvent(start=start)
             for s, f in enumerate(frets):
-                if f >= 0:
-                    event.notes.append(TabNote(string=s, fret=f, start=start, end=b_end, pitch=tuning[s] + f))
+                if f < 0:
+                    continue
+                pitch = tuning[s] + f
+                event.notes.append(
+                    TabNote(
+                        string=s,
+                        fret=f,
+                        start=start,
+                        end=_source_end(group, pitch, b_end),
+                        pitch=pitch,
+                    )
+                )
             track.events.append(event)
         track.bars.append((b_start, b_end))
     return track
 
 
-def build_bass_track(notes, tempo, ts=(4, 4), tuning=None, name="Bass", max_span=4, max_fret=21):
-    tuning = resolve_tuning(tuning, BASS_TUNING, BASS_TUNINGS)
-    track = TabTrack(name=name, tuning=tuning, max_fret=max_fret)
-    if not notes:
-        return track
-    duration = max(n.end for n in notes)
-    bars = _bar_boundaries(duration, tempo, ts)
-    prev_frets = [0] * len(tuning)
-    for b_start, b_end in bars:
-        bar_notes = [n for n in notes if n.end > b_start and n.start < b_end]
-        for start, group in _events_from_notes(bar_notes):
-            pitches = [n.pitch for n in group]
-            frets = voice_chord(pitches, tuning, prev_frets, max_span, max_fret)
-            if frets is None:
-                continue
-            prev_frets = [f if f >= 0 else p for f, p in zip(frets, prev_frets)]
-            event = TabEvent(start=start)
-            for s, f in enumerate(frets):
-                if f >= 0:
-                    event.notes.append(TabNote(string=s, fret=f, start=start, end=b_end, pitch=tuning[s] + f))
-            track.events.append(event)
-        track.bars.append((b_start, b_end))
-    return track
+def build_guitar_track(
+    notes,
+    tempo,
+    ts=(4, 4),
+    tuning=None,
+    name="Guitar",
+    max_span=DEFAULT_MAX_SPAN,
+    max_fret=GUITAR_MAX_FRET,
+):
+    return _build_tab_track(
+        notes,
+        tempo,
+        ts,
+        resolve_tuning(tuning, GUITAR_TUNING, GUITAR_TUNINGS),
+        name,
+        max_span,
+        max_fret,
+    )
+
+
+def build_bass_track(
+    notes,
+    tempo,
+    ts=(4, 4),
+    tuning=None,
+    name="Bass",
+    max_span=DEFAULT_MAX_SPAN,
+    max_fret=BASS_MAX_FRET,
+):
+    return _build_tab_track(
+        notes,
+        tempo,
+        ts,
+        resolve_tuning(tuning, BASS_TUNING, BASS_TUNINGS),
+        name,
+        max_span,
+        max_fret,
+    )
 
 
 DRUM_MAP = {
@@ -266,11 +449,19 @@ def build_arrangement(
             arrangement.drums.extend(classify_drums(instrument.notes))
         else:
             melodic.append(instrument)
+    arrangement.drums.sort(key=lambda h: h.start)
     if arrange_melodic_to_guitar and not arrangement.guitar and melodic:
         melodic.sort(key=lambda i: len(i.notes), reverse=True)
-        merged = melodic[0].notes
+        merged = [n for instrument in melodic for n in instrument.notes]
         name = melodic[0].name
-        arrangement.guitar.append(
-            build_guitar_track(merged, tempo, arrangement.ts, tuning=guitar_tuning, name=f"{name} (arranged)")
+        track = build_guitar_track(
+            merged, tempo, arrangement.ts, tuning=guitar_tuning, name=f"{name} (arranged)"
         )
+        if len(melodic) > 1:
+            track.performance_notes.insert(
+                0,
+                "arranged from %d melodic parts: %s"
+                % (len(melodic), ", ".join(i.name for i in melodic)),
+            )
+        arrangement.guitar.append(track)
     return arrangement

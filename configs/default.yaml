@@ -13,20 +13,45 @@ features:
   f_max: 16000
   window_frames: 128
   hop_ms: 10
+  min_note: 24
+  max_note: 95
 
 model:
-  channels: [32, 64, 96, 128]
+  channels: [128, 256, 512, 896]   # ~16.5M params (spec target 15-30M)
   n_notes: 128
+
+augment:
+  enabled: true
+  gain_prob: 0.5
+  gain_db: 6.0
+  pitch_shift_prob: 0.3
+  pitch_shift_steps: 2
+  time_stretch_prob: 0.3
+  time_stretch: 0.1
+  spec_augment_prob: 0.5
+  freq_mask_width: 16
+  time_mask_width: 24
 
 data:
   index_dir: data/index
+  # Dataset roots scanned by `lyre prepare-data`. These are PLACEHOLDERS — point
+  # them at real corpora before running it. `private` also accepts a list.
+  sources:
+    slakh: ~/datasets/slakh2100
+    maestro: ~/datasets/maestro-v3.0.0
+    guitar: ~/datasets/GuitarSet
+    private: ~/datasets/private
   train_index: train.json
   val_index: val.json
   test_index: test.json
+  # Keys must match the `source` string prepare-data stamps on each entry
+  # (slakh/maestro/guitar/private); an unmatched key silently samples at 1.0.
+  # Why this split: see "Training regimen -> Data pipeline" in
+  # docs/superpowers/specs/2026-08-04-lyre-music-transcription-design.md.
   mix_weights:
     slakh: 0.40
     guitar: 0.25
-    piano: 0.25
+    maestro: 0.25
     private: 0.10
   num_workers: 4
 
@@ -60,3 +85,14 @@ labeling:
 
 inference:
   window_overlap: 0.5
+  chunk_sec: 120        # bounded-memory block length; null/0 disables chunking
+  chunk_pad_sec: 2.0    # context padding per block
+
+eval:
+  frame_tolerance_frames: 2       # frame/onset F1 tolerance
+  note_onset_tolerance_sec: 0.05  # mir_eval onset tolerance
+  # "No weak voice" gate: every instrument must reach this frame F1 on its own,
+  # so a strong average cannot hide one unusable instrument. An instrument with
+  # no eval tracks fails the gate too -- an un-run check is not a passed check.
+  # null disables enforcement and reports only. Raise this as the model improves.
+  min_instrument_f1: null

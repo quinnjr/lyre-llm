@@ -19,7 +19,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pdf = ["verovio"]
+# PDF export shells out to the MuseScore CLI (`mscore`/`musescore`), an external
+# binary rather than a Python package, so there is no `pdf` extra to install.
+# Verovio was dropped: its Python toolkit has no PDF writer.
+#
+# `lyre export` needs the ONNX toolchain, which the core pipeline does not:
+# install it with `pip install lyre[export]`.
+export = ["onnx", "onnxscript", "onnxruntime"]
 test = ["pytest"]
 
 [project.scripts]
