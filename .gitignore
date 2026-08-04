@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+v/
+
+# training / run artifacts
+checkpoints/
+runs/
+outputs/
+data/
+*.pt
+*.ckpt

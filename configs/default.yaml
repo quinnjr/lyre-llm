@@ -1,0 +1,62 @@
+run:
+  seed: 1337
+  out_dir: runs/default
+
+audio:
+  sample_rate: 44100
+  decode_channels: 2
+
+features:
+  n_mels: 229
+  n_fft: 2048
+  f_min: 30
+  f_max: 16000
+  window_frames: 128
+  hop_ms: 10
+
+model:
+  channels: [32, 64, 96, 128]
+  n_notes: 128
+
+data:
+  index_dir: data/index
+  train_index: train.json
+  val_index: val.json
+  test_index: test.json
+  mix_weights:
+    slakh: 0.40
+    guitar: 0.25
+    piano: 0.25
+    private: 0.10
+  num_workers: 4
+
+train:
+  batch_size: 32
+  epochs: 60
+  lr: 0.001
+  weight_decay: 0.0001
+  warmup_epochs: 2
+  loss_onset_weight: 0.5
+  grad_clip: 1.0
+  amp: true
+  eval_every: 2
+  resume: null
+
+tracking:
+  p_onset: 0.05
+  p_sustain: 0.95
+  min_note_sec: 0.06
+  merge_gap_sec: 0.03
+  min_velocity: 0.2
+
+arrange:
+  tempo: 120
+  time_signature: [4, 4]
+  guitar_tuning: standard
+  bass_tuning: standard
+
+labeling:
+  use_llm: false
+
+inference:
+  window_overlap: 0.5

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lyre"
+version = "0.1.0"
+description = "Audio to multitrack MIDI + guitar/bass/drum tab transcription pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "torchaudio>=2.1",
+    "numpy",
+    "PyYAML",
+    "pretty_midi",
+    "mir_eval",
+    "demucs",
+    "PyGuitarPro",
+]
+
+[project.optional-dependencies]
+pdf = ["verovio"]
+test = ["pytest"]
+
+[project.scripts]
+lyre = "lyre.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["lyre*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
