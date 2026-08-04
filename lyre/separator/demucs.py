@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 import torch
 from demucs.apply import apply_model
 from demucs.pretrained import get_model

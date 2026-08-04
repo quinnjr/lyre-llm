@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 from xml.etree import ElementTree as ET
 
 from ._common import bucket_by_bar, drum_bars, drum_events

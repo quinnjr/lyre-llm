@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Helpers shared by the entry-point scripts.
 
 Device resolution lives here rather than in one script that the others import

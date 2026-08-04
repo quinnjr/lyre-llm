@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """The exception hierarchy is part of the public interface.
 
 Callers -- the CLI, the pipeline's per-stage handlers, and code outside the

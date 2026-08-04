@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Audio decode / channel-fit and MIDI unit tests.
 
 Everything here is a *units* test: the failure mode being guarded against is

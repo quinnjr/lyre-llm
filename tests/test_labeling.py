@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Track labeling: the rule-based path, and the LLM that may refine it.
 
 Two things are being pinned here. The first is that ``--llm`` never silently

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Loading and validating run configs.
 
 Every entry point (train, evaluate, export, prepare-data, the CLI) reads its YAML

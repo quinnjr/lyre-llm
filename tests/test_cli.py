@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """CLI surface: flag defaults, and the exit-code contract.
 
 The exit code is the only thing a script calling ``lyre`` can see. Getting it

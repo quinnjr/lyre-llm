@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Gates on the config: what it says, what reads it, and what it builds.
 
 Three bug classes live here.

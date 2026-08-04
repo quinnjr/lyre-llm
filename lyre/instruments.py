@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 

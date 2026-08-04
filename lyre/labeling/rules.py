@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 from lyre.errors import LabelingError
 from lyre.instruments import Instrument, normalize_label, program_for
 from lyre.reporting import warn as _report

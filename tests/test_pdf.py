@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Engraving MusicXML to PDF by shelling out to the MuseScore CLI.
 
 MuseScore is a third-party GUI binary being driven headless. Three things about

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 """Bar-bucketing and drum-grouping shared by the ascii, GP5 and MusicXML renderers.
 
 These used to be copied into each renderer. The copies have to agree exactly --

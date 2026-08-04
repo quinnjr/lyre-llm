@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Elastic-2.0
+# Copyright (c) 2026 Joseph R. Quinn
+
 from guitarpro import Song, Track, Beat, Note, Duration, TimeSignature
 from guitarpro import GuitarString, MidiChannel, BeatStatus
 
